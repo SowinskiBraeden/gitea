@@ -150,6 +150,7 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 	if err := db.DeleteBeans(ctx,
 		&access_model.Access{RepoID: repo.ID},
 		&activities_model.Action{RepoID: repo.ID},
+		&activities_model.UserContribution{RepoID: repo.ID},
 		&repo_model.Collaboration{RepoID: repoID},
 		&issues_model.Comment{RefRepoID: repoID},
 		&git_model.CommitStatus{RepoID: repoID},

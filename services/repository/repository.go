@@ -113,6 +113,9 @@ func Init(ctx context.Context) error {
 	if err := initPushQueue(); err != nil {
 		return err
 	}
+	if err := initHistoricalContributionsQueue(); err != nil {
+		return err
+	}
 	return initBranchSyncQueue(graceful.GetManager().ShutdownContext())
 }
 

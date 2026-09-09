@@ -8,12 +8,16 @@ import (
 	"time"
 
 	activities_model "gitea.dev/models/activities"
+	"gitea.dev/models/db"
+	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/json"
+	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetUserHeatmapDataByUser(t *testing.T) {
@@ -62,6 +66,7 @@ func TestGetUserHeatmapDataByUser(t *testing.T) {
 
 	for _, tc := range testCases {
 		user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: tc.userID})
+		user.CreatedUnix = timeutil.TimeStamp(time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
 
 		var doer *user_model.User
 		if tc.doerID != 0 {
@@ -79,7 +84,7 @@ func TestGetUserHeatmapDataByUser(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Get the heatmap and compare
-		heatmap, err := activities_model.GetUserHeatmapDataByUser(t.Context(), user, doer)
+		heatmap, err := activities_model.GetUserHeatmapDataByUserAndYear(t.Context(), user, doer, 2020)
 		var contributions int
 		for _, hm := range heatmap {
 			contributions += int(hm.Contributions)
@@ -94,4 +99,60 @@ func TestGetUserHeatmapDataByUser(t *testing.T) {
 		assert.NoError(t, err)
 		assert.JSONEq(t, tc.JSONResult, string(jsonData))
 	}
+}
+
+func TestResolveUserHeatmapPeriod(t *testing.T) {
+	timeutil.MockSet(time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC))
+	defer timeutil.MockUnset()
+
+	user := &user_model.User{CreatedUnix: timeutil.TimeStamp(time.Date(2019, 3, 1, 0, 0, 0, 0, time.UTC).Unix())}
+
+	current := activities_model.ResolveUserHeatmapPeriod(user, 0)
+	assert.Equal(t, 2026, current.Year)
+	assert.Equal(t, []int{2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019}, current.Years)
+
+	previous := activities_model.ResolveUserHeatmapPeriod(user, 2024)
+	assert.Equal(t, 2024, previous.Year)
+	assert.Equal(t, time.Date(2024, 1, 1, 0, 0, 0, 0, setting.DefaultUILocation), previous.Start)
+	assert.Equal(t, time.Date(2025, 1, 1, 0, 0, 0, 0, setting.DefaultUILocation), previous.End)
+	assert.Equal(t, 366, int(previous.End.Sub(previous.Start).Hours()/24))
+
+	for _, requested := range []int{2018, 2027, -1} {
+		resolved := activities_model.ResolveUserHeatmapPeriod(user, requested)
+		assert.Equal(t, 2026, resolved.Year)
+	}
+}
+
+func TestGetUserHeatmapDataByYearBoundariesAndContributions(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	user.CreatedUnix = timeutil.TimeStamp(time.Date(2019, 3, 1, 0, 0, 0, 0, time.UTC).Unix())
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, setting.DefaultUILocation)
+	end := time.Date(2025, 1, 1, 0, 0, 0, 0, setting.DefaultUILocation)
+	_, err := db.GetEngine(t.Context()).NoAutoTime().Insert(
+		&activities_model.Action{UserID: user.ID, ActUserID: user.ID, RepoID: repo.ID, OpType: activities_model.ActionCreateIssue, CreatedUnix: timeutil.TimeStamp(start.Unix())},
+		&activities_model.Action{UserID: user.ID, ActUserID: user.ID, RepoID: repo.ID, OpType: activities_model.ActionCommitRepo, CreatedUnix: timeutil.TimeStamp(start.Add(time.Hour).Unix())},
+		&activities_model.Action{UserID: user.ID, ActUserID: user.ID, RepoID: repo.ID, OpType: activities_model.ActionCreateIssue, CreatedUnix: timeutil.TimeStamp(end.Unix())},
+	)
+	require.NoError(t, err)
+	require.NoError(t, activities_model.ReplaceUserContributionsForRepo(t.Context(), repo.ID, []*activities_model.UserContribution{
+		{
+			UserID:           user.ID,
+			RepoID:           repo.ID,
+			CommitSHA:        "0123456789012345678901234567890123456789",
+			ContributionType: activities_model.UserContributionTypeCommit,
+			ContributionUnix: timeutil.TimeStamp(end.Add(-time.Second).Unix()),
+		},
+	}))
+
+	heatmap, err := activities_model.GetUserHeatmapDataByUserAndYear(t.Context(), user, user, 2024)
+	require.NoError(t, err)
+	var total int64
+	for _, item := range heatmap {
+		total += item.Contributions
+	}
+	assert.EqualValues(t, 2, total)
 }

@@ -172,6 +172,9 @@ func pushQueueHandleUpdates(optsList []*repo_module.PushUpdateOptions) error {
 					if err := AddRepoToLicenseUpdaterQueue(&LicenseUpdaterOptions{RepoID: repo.ID}); err != nil {
 						log.Error("AddRepoToLicenseUpdaterQueue: %v", err)
 					}
+					if err := AddRepoToHistoricalContributionsQueue(repo.ID); err != nil {
+						log.Error("AddRepoToHistoricalContributionsQueue: %v", err)
+					}
 				} else {
 					if err := DelDivergenceFromCache(repo.ID, branch); err != nil {
 						log.Error("DelDivergenceFromCache: %v", err)
@@ -308,6 +311,11 @@ func pushDeleteBranch(ctx context.Context, repo *repo_model.Repository, pusher *
 	if err := pull_service.AdjustPullsCausedByBranchDeleted(ctx, pusher, repo, opts.RefFullName.BranchName()); err != nil {
 		// close all related pulls
 		log.Error("close related pull request failed: %v", err)
+	}
+	if opts.RefFullName.BranchName() == repo.DefaultBranch {
+		if err := AddRepoToHistoricalContributionsQueue(repo.ID); err != nil {
+			log.Error("AddRepoToHistoricalContributionsQueue: %v", err)
+		}
 	}
 }
 

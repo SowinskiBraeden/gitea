@@ -37093,6 +37093,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "calendar year to return",
+            "in": "query",
+            "name": "year",
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {

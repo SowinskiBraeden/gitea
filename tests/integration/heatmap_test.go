@@ -25,7 +25,7 @@ func TestHeatmapEndpoints(t *testing.T) {
 
 	t.Run("UserProfile", func(t *testing.T) {
 		defer tests.PrintCurrentTest(t)()
-		req := NewRequest(t, "GET", "/user2/-/heatmap")
+		req := NewRequest(t, "GET", "/user2/-/heatmap?year=2020")
 		resp := session.MakeRequest(t, req, http.StatusOK)
 
 		result := DecodeJSON(t, resp, map[string]any{})
@@ -36,7 +36,7 @@ func TestHeatmapEndpoints(t *testing.T) {
 
 	t.Run("OrgDashboard", func(t *testing.T) {
 		defer tests.PrintCurrentTest(t)()
-		req := NewRequest(t, "GET", "/org/org3/dashboard/-/heatmap")
+		req := NewRequest(t, "GET", "/org/org3/dashboard/-/heatmap?year=2020")
 		resp := session.MakeRequest(t, req, http.StatusOK)
 
 		result := DecodeJSON(t, resp, map[string]any{})
@@ -46,7 +46,7 @@ func TestHeatmapEndpoints(t *testing.T) {
 
 	t.Run("OrgTeamDashboard", func(t *testing.T) {
 		defer tests.PrintCurrentTest(t)()
-		req := NewRequest(t, "GET", "/org/org3/dashboard/-/heatmap/team1")
+		req := NewRequest(t, "GET", "/org/org3/dashboard/-/heatmap/team1?year=2020")
 		resp := session.MakeRequest(t, req, http.StatusOK)
 
 		result := DecodeJSON(t, resp, map[string]any{})

@@ -174,7 +174,7 @@ func MigrateRepositoryGitData(ctx context.Context, u *user_model.User,
 		}
 	}
 
-	return db.WithTx2(ctx, func(ctx context.Context) (*repo_model.Repository, error) {
+	repo, err = db.WithTx2(ctx, func(ctx context.Context) (*repo_model.Repository, error) {
 		if opts.Mirror {
 			remoteAddress, err := util.SanitizeURL(opts.CloneAddr)
 			if err != nil {
@@ -257,6 +257,15 @@ func MigrateRepositoryGitData(ctx context.Context, u *user_model.User,
 		}
 		return repo, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	if !repo.IsEmpty {
+		if err := AddRepoToHistoricalContributionsQueue(repo.ID); err != nil {
+			log.Error("AddRepoToHistoricalContributionsQueue: %v", err)
+		}
+	}
+	return repo, nil
 }
 
 // CleanUpMigrateInfo finishes migrating repository and/or wiki with things that don't need to be done for mirrors.

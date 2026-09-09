@@ -6,6 +6,9 @@ import {trString} from '../modules/i18n.ts';
 type HeatmapResponse = {
   heatmapData: Array<[number, number]>; // [[1617235200, 2]] = [unix timestamp, count]
   totalContributions: number;
+  year: number;
+  startDate: string;
+  endDate: string;
 };
 
 export async function initHeatmap() {
@@ -16,7 +19,7 @@ export async function initHeatmap() {
     const url = el.getAttribute('data-heatmap-url')!;
     const resp = await GET(url);
     if (!resp.ok) throw new Error(`Failed to load heatmap data: ${resp.status} ${resp.statusText}`);
-    const {heatmapData, totalContributions} = await resp.json() as HeatmapResponse;
+    const {heatmapData, totalContributions, year, startDate, endDate} = await resp.json() as HeatmapResponse;
 
     const heatmap: Record<string, number> = {};
     for (const [timestamp, contributions] of heatmapData) {
@@ -30,7 +33,7 @@ export async function initHeatmap() {
     });
 
     const totalFormatted = totalContributions.toLocaleString();
-    const textTotalContributions = trString(el.getAttribute('data-locale-total-contributions')!, totalFormatted);
+    const textTotalContributions = trString(el.getAttribute('data-locale-total-contributions')!, totalFormatted, year);
 
     // last heatmap tooltip localization attempt https://github.com/go-gitea/gitea/pull/24131/commits/a83761cbbae3c2e3b4bced71e680f44432073ac8
     const locale = {
@@ -47,7 +50,7 @@ export async function initHeatmap() {
     };
 
     const {default: ActivityHeatmap} = await import('../components/ActivityHeatmap.vue');
-    const View = createApp(ActivityHeatmap, {values, locale});
+    const View = createApp(ActivityHeatmap, {values, locale, startDate, endDate});
     View.mount(el);
     el.classList.remove('is-loading');
   } catch (err) {

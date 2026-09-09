@@ -1,9 +1,16 @@
 {{if .EnableHeatmap}}
 {{/*HINT: USER-ACTIVITY-PUSH-COMMITS: it only uses the doer's action time, it doesn't use git commit's time */}}
 <div class="activity-heatmap-container">
+	{{if .HeatmapYears}}
+		<div class="heatmap-year-nav flex-text-block">
+			{{range .HeatmapYears}}
+				<a class="ui tiny label{{if .Selected}} primary{{end}}" href="{{.URL}}" aria-current="{{if .Selected}}page{{else}}false{{end}}">{{.Year}}</a>
+			{{end}}
+		</div>
+	{{end}}
 	<div id="user-heatmap" class="is-loading"
 		data-heatmap-url="{{.HeatmapURL}}"
-		data-locale-total-contributions="{{ctx.Locale.Tr "heatmap.number_of_contributions_in_the_last_12_months" "%s"}}"
+		data-locale-total-contributions="{{ctx.Locale.Tr "heatmap.number_of_contributions_in_year" "%[1]s" "%[2]s"}}"
 		data-locale-no-contributions="{{ctx.Locale.Tr "heatmap.no_contributions"}}"
 		data-locale-more="{{ctx.Locale.Tr "heatmap.more"}}"
 		data-locale-less="{{ctx.Locale.Tr "heatmap.less"}}"

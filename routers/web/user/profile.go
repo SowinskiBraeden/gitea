@@ -162,7 +162,10 @@ func prepareUserProfileTabData(ctx *context.Context, profileDbRepo *repo_model.R
 	case "activity":
 		if setting.Service.EnableUserHeatmap && activities_model.ActivityReadable(ctx.ContextUser, ctx.Doer) {
 			ctx.Data["EnableHeatmap"] = true
-			ctx.Data["HeatmapURL"] = ctx.ContextUser.HomeLink() + "/-/heatmap"
+			period := activities_model.ResolveUserHeatmapPeriod(ctx.ContextUser, ctx.FormInt("year"))
+			heatmapURL := appendHeatmapYear(ctx.ContextUser.HomeLink()+"/-/heatmap", period.Year)
+			ctx.Data["HeatmapURL"] = heatmapURL
+			prepareHeatmapYears(ctx, heatmapURL, period)
 		}
 
 		date := ctx.FormString("date")

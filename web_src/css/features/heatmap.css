@@ -8,6 +8,11 @@
   container-type: inline-size;
 }
 
+.heatmap-year-nav {
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
 @container (width > 0) {
   #user-heatmap {
     /* Set element to fixed height so that it does not resize after load. The calculation is complex

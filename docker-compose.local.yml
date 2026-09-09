@@ -1,0 +1,17 @@
+# Build and run this checkout with the standard rootful Gitea image layout.
+#
+# Set GITEA_DATA to the existing Docker named volume or bind mount that is
+# currently mounted at /data in your Gitea container.
+services:
+  gitea:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: gitea
+    image: sowinski-gitea:local
+    restart: unless-stopped
+    ports:
+      - "${GITEA_HTTP_PORT:-3000}:3000"
+      - "${GITEA_SSH_PORT:-222}:22"
+    volumes:
+      - "${GITEA_DATA:?set GITEA_DATA to your existing /data volume or bind mount}:/data"

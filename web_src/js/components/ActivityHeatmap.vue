@@ -11,6 +11,8 @@ type DayLabel = {dayIdx: number; rowIdx: number};
 
 const props = defineProps<{
   values: HeatmapValue[];
+  startDate: string;
+  endDate: string;
   locale: {
     textTotalContributions: string;
     heatMapLocale: {months: string[]; days: string[]; on: string; more: string; less: string};
@@ -32,7 +34,6 @@ const squareSize = 10;
 const squareBorder = 2;
 const cellSize = squareSize + squareBorder;
 const daysInWeek = 7;
-const trailingDays = 365;
 const gridLeft = Math.ceil(squareSize * 2.5);
 const gridTop = squareSize + squareSize / 2;
 
@@ -64,10 +65,12 @@ function getWeekFirstDay() {
 }
 
 const grid = computed(() => {
-  const start = shiftDate(now, -trailingDays);
+  const start = new Date(`${props.startDate}T00:00:00`);
+  const end = new Date(`${props.endDate}T00:00:00`);
+  const trailingDays = Math.round((end.getTime() - start.getTime()) / 86400000);
   const firstDayIdx = getWeekFirstDay() % daysInWeek; // 0 to 6
   const padStart = (start.getDay() - firstDayIdx + daysInWeek) % daysInWeek;
-  const padEnd = (firstDayIdx - now.getDay() - 1 + daysInWeek) % daysInWeek;
+  const padEnd = (firstDayIdx - end.getDay() - 1 + daysInWeek) % daysInWeek;
   const weekCount = (trailingDays + 1 + padStart + padEnd) / daysInWeek;
 
   const maxCount = props.values.length ? Math.max(...props.values.map((v) => v.count)) : 0;

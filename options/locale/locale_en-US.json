@@ -198,6 +198,7 @@
   "aria.footer.software": "About Software",
   "aria.footer.links": "Links",
   "heatmap.number_of_contributions_in_the_last_12_months": "%s contributions in the last 12 months",
+  "heatmap.number_of_contributions_in_year": "%[1]s contributions in %[2]s",
   "heatmap.no_contributions": "No contributions",
   "heatmap.less": "Less",
   "heatmap.more": "More",

@@ -148,13 +148,17 @@ func GetUserHeatmapData(ctx *context.APIContext) {
 	//   description: username of the user whose heatmap is to be obtained
 	//   type: string
 	//   required: true
+	// - name: year
+	//   in: query
+	//   description: calendar year to return
+	//   type: integer
 	// responses:
 	//   "200":
 	//     "$ref": "#/responses/UserHeatmapData"
 	//   "404":
 	//     "$ref": "#/responses/notFound"
 
-	heatmap, err := activities_model.GetUserHeatmapDataByUser(ctx, ctx.ContextUser, ctx.Doer)
+	heatmap, err := activities_model.GetUserHeatmapDataByUserAndYear(ctx, ctx.ContextUser, ctx.Doer, ctx.FormInt("year"))
 	if err != nil {
 		ctx.APIErrorInternal(err)
 		return

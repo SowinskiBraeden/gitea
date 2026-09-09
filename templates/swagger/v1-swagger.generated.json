@@ -24342,6 +24342,12 @@
             "name": "username",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "integer",
+            "description": "calendar year to return",
+            "name": "year",
+            "in": "query"
           }
         ],
         "responses": {
