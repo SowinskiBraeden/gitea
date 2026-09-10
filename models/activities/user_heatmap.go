@@ -6,6 +6,7 @@ package activities
 import (
 	"context"
 	"slices"
+	"strconv"
 	"time"
 
 	"gitea.dev/models/db"
@@ -36,7 +37,10 @@ func GetUserHeatmapDataByUser(ctx context.Context, user, doer *user_model.User) 
 }
 
 func GetUserHeatmapDataByUserAndYear(ctx context.Context, user, doer *user_model.User, year int) ([]*UserHeatmapData, error) {
-	period := ResolveUserHeatmapPeriod(user, year)
+	period, err := ResolveUserHeatmapPeriod(ctx, user, year)
+	if err != nil {
+		return nil, err
+	}
 	return getUserHeatmapData(ctx, user, nil, doer, period.Start, period.End)
 }
 
@@ -46,11 +50,34 @@ func GetUserHeatmapDataByOrgTeam(ctx context.Context, org *organization.Organiza
 }
 
 func GetUserHeatmapDataByOrgTeamAndYear(ctx context.Context, org *organization.Organization, team *organization.Team, doer *user_model.User, year int) ([]*UserHeatmapData, error) {
-	period := ResolveUserHeatmapPeriod(org.AsUser(), year)
+	period, err := ResolveUserHeatmapPeriod(ctx, org.AsUser(), year)
+	if err != nil {
+		return nil, err
+	}
 	return getUserHeatmapData(ctx, org.AsUser(), team, doer, period.Start, period.End)
 }
 
-func ResolveUserHeatmapPeriod(user *user_model.User, year int) UserHeatmapPeriod {
+func UserContributionHistoryYears(ctx context.Context, user *user_model.User) (int, error) {
+	maxYears := max(setting.Service.UserHeatmapMaxYears, 1)
+	if user == nil || user.ID == 0 {
+		return maxYears, nil
+	}
+	value, err := user_model.GetUserSetting(ctx, user.ID, user_model.SettingsKeyContributionHistoryYears, strconv.Itoa(maxYears))
+	if err != nil {
+		return 0, err
+	}
+	years, err := strconv.Atoi(value)
+	if err != nil || years < 1 {
+		return maxYears, nil
+	}
+	return min(years, maxYears), nil
+}
+
+func ResolveUserHeatmapPeriod(ctx context.Context, user *user_model.User, year int) (UserHeatmapPeriod, error) {
+	historyYears, err := UserContributionHistoryYears(ctx, user)
+	if err != nil {
+		return UserHeatmapPeriod{}, err
+	}
 	now := timeutil.TimeStampNow().AsTime()
 	currentYear := now.Year()
 	firstYear := currentYear
@@ -62,6 +89,7 @@ func ResolveUserHeatmapPeriod(user *user_model.User, year int) UserHeatmapPeriod
 	if firstYear > currentYear {
 		firstYear = currentYear
 	}
+	firstYear = max(firstYear, currentYear-historyYears+1)
 	if year < firstYear || year > currentYear {
 		year = currentYear
 	}
@@ -77,7 +105,7 @@ func ResolveUserHeatmapPeriod(user *user_model.User, year int) UserHeatmapPeriod
 		Start: start,
 		End:   start.AddDate(1, 0, 0),
 		Years: years,
-	}
+	}, nil
 }
 
 func getUserHeatmapData(ctx context.Context, user *user_model.User, team *organization.Team, doer *user_model.User, start, end time.Time) ([]*UserHeatmapData, error) {

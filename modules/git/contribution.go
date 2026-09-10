@@ -25,7 +25,15 @@ type CommitAuthor struct {
 
 // WalkCommitAuthors walks commits reachable from revision and calls walkFn for each author identity.
 func WalkCommitAuthors(ctx context.Context, repo RepositoryFacade, revision string, walkFn func(CommitAuthor) error) error {
+	return WalkCommitAuthorsSince(ctx, repo, revision, time.Time{}, walkFn)
+}
+
+// WalkCommitAuthorsSince walks commits reachable from revision and calls walkFn for each author identity.
+func WalkCommitAuthorsSince(ctx context.Context, repo RepositoryFacade, revision string, since time.Time, walkFn func(CommitAuthor) error) error {
 	gitCmd := gitcmd.NewCommand("log", "--format=%H%x00%aE%x00%at%x1e")
+	if !since.IsZero() {
+		gitCmd.AddOptionFormat("--since=%s", since.Format(time.RFC3339))
+	}
 	gitCmd.AddDynamicArguments(revision)
 
 	stdoutReader, stdoutReaderClose := gitCmd.MakeStdoutPipe()

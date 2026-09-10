@@ -14,6 +14,9 @@
 			{{ctx.Locale.Tr "notifications"}}
 		</a>
 		{{end}}
+		<a class="{{if .PageIsSettingsContributions}}active {{end}}item" href="{{AppSubUrl}}/user/settings/contributions">
+			{{ctx.Locale.Tr "settings.contributions"}}
+		</a>
 		<a class="{{if .PageIsSettingsAppearance}}active {{end}}item" href="{{AppSubUrl}}/user/settings/appearance">
 			{{ctx.Locale.Tr "settings.appearance"}}
 		</a>

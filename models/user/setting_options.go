@@ -24,4 +24,8 @@ const (
 	SettingEmailNotificationGiteaActionsDisabled    = "disabled"
 
 	SettingsKeyActionsConfig = "actions.config"
+
+	// Custom extended contribution history support.
+	SettingsKeyContributionShowPrivate  = "contribution.show_private"
+	SettingsKeyContributionHistoryYears = "contribution.history_years"
 )

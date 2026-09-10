@@ -104,27 +104,55 @@ func TestGetUserHeatmapDataByUser(t *testing.T) {
 func TestResolveUserHeatmapPeriod(t *testing.T) {
 	timeutil.MockSet(time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC))
 	defer timeutil.MockUnset()
+	oldMaxYears := setting.Service.UserHeatmapMaxYears
+	setting.Service.UserHeatmapMaxYears = 10
+	defer func() { setting.Service.UserHeatmapMaxYears = oldMaxYears }()
 
 	user := &user_model.User{CreatedUnix: timeutil.TimeStamp(time.Date(2019, 3, 1, 0, 0, 0, 0, time.UTC).Unix())}
 
-	current := activities_model.ResolveUserHeatmapPeriod(user, 0)
+	current, err := activities_model.ResolveUserHeatmapPeriod(t.Context(), user, 0)
+	require.NoError(t, err)
 	assert.Equal(t, 2026, current.Year)
 	assert.Equal(t, []int{2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019}, current.Years)
 
-	previous := activities_model.ResolveUserHeatmapPeriod(user, 2024)
+	previous, err := activities_model.ResolveUserHeatmapPeriod(t.Context(), user, 2024)
+	require.NoError(t, err)
 	assert.Equal(t, 2024, previous.Year)
 	assert.Equal(t, time.Date(2024, 1, 1, 0, 0, 0, 0, setting.DefaultUILocation), previous.Start)
 	assert.Equal(t, time.Date(2025, 1, 1, 0, 0, 0, 0, setting.DefaultUILocation), previous.End)
 	assert.Equal(t, 366, int(previous.End.Sub(previous.Start).Hours()/24))
 
 	for _, requested := range []int{2018, 2027, -1} {
-		resolved := activities_model.ResolveUserHeatmapPeriod(user, requested)
+		resolved, err := activities_model.ResolveUserHeatmapPeriod(t.Context(), user, requested)
+		require.NoError(t, err)
 		assert.Equal(t, 2026, resolved.Year)
 	}
 }
 
+func TestResolveUserHeatmapPeriodMaxRange(t *testing.T) {
+	timeutil.MockSet(time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC))
+	defer timeutil.MockUnset()
+	oldMaxYears := setting.Service.UserHeatmapMaxYears
+	setting.Service.UserHeatmapMaxYears = 3
+	defer func() { setting.Service.UserHeatmapMaxYears = oldMaxYears }()
+
+	user := &user_model.User{CreatedUnix: timeutil.TimeStamp(time.Date(2019, 3, 1, 0, 0, 0, 0, time.UTC).Unix())}
+
+	resolved, err := activities_model.ResolveUserHeatmapPeriod(t.Context(), user, 2019)
+	require.NoError(t, err)
+	assert.Equal(t, 2026, resolved.Year)
+	assert.Equal(t, []int{2026, 2025, 2024}, resolved.Years)
+
+	resolved, err = activities_model.ResolveUserHeatmapPeriod(t.Context(), user, 2024)
+	require.NoError(t, err)
+	assert.Equal(t, 2024, resolved.Year)
+}
+
 func TestGetUserHeatmapDataByYearBoundariesAndContributions(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
+	oldMaxYears := setting.Service.UserHeatmapMaxYears
+	setting.Service.UserHeatmapMaxYears = 10
+	defer func() { setting.Service.UserHeatmapMaxYears = oldMaxYears }()
 
 	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 	user.CreatedUnix = timeutil.TimeStamp(time.Date(2019, 3, 1, 0, 0, 0, 0, time.UTC).Unix())
@@ -155,4 +183,75 @@ func TestGetUserHeatmapDataByYearBoundariesAndContributions(t *testing.T) {
 		total += item.Contributions
 	}
 	assert.EqualValues(t, 2, total)
+}
+
+func TestGetUserHeatmapDataPrivateContributions(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, db.TruncateBeans(t.Context(), &activities_model.Action{}, &activities_model.UserContribution{}))
+	oldMaxYears := setting.Service.UserHeatmapMaxYears
+	setting.Service.UserHeatmapMaxYears = 10
+	defer func() { setting.Service.UserHeatmapMaxYears = oldMaxYears }()
+
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	user.CreatedUnix = timeutil.TimeStamp(time.Date(2019, 3, 1, 0, 0, 0, 0, time.UTC).Unix())
+	publicRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	privateRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 2})
+	require.False(t, publicRepo.IsPrivate)
+	require.True(t, privateRepo.IsPrivate)
+
+	when := time.Date(2024, 9, 9, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, activities_model.ReplaceUserContributionsForRepo(t.Context(), publicRepo.ID, []*activities_model.UserContribution{
+		{
+			UserID:           user.ID,
+			RepoID:           publicRepo.ID,
+			CommitSHA:        "1111111111111111111111111111111111111111",
+			ContributionType: activities_model.UserContributionTypeCommit,
+			ContributionUnix: timeutil.TimeStamp(when.Unix()),
+		},
+	}))
+	require.NoError(t, activities_model.ReplaceUserContributionsForRepo(t.Context(), privateRepo.ID, []*activities_model.UserContribution{
+		{
+			UserID:           user.ID,
+			RepoID:           privateRepo.ID,
+			CommitSHA:        "2222222222222222222222222222222222222222",
+			ContributionType: activities_model.UserContributionTypeCommit,
+			ContributionUnix: timeutil.TimeStamp(when.Unix()),
+		},
+		{
+			UserID:           user.ID,
+			RepoID:           privateRepo.ID,
+			CommitSHA:        "3333333333333333333333333333333333333333",
+			ContributionType: activities_model.UserContributionTypeCommit,
+			ContributionUnix: timeutil.TimeStamp(when.Add(time.Minute).Unix()),
+		},
+	}))
+
+	require.NoError(t, user_model.SetUserSetting(t.Context(), user.ID, user_model.SettingsKeyContributionShowPrivate, "false"))
+	anonymousHeatmap, err := activities_model.GetUserHeatmapDataByUserAndYear(t.Context(), user, nil, 2024)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, heatmapTotal(anonymousHeatmap))
+
+	ownerHeatmap, err := activities_model.GetUserHeatmapDataByUserAndYear(t.Context(), user, user, 2024)
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, heatmapTotal(ownerHeatmap))
+
+	require.NoError(t, user_model.SetUserSetting(t.Context(), user.ID, user_model.SettingsKeyContributionShowPrivate, "true"))
+	anonymousHeatmap, err = activities_model.GetUserHeatmapDataByUserAndYear(t.Context(), user, nil, 2024)
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, heatmapTotal(anonymousHeatmap))
+
+	jsonData, err := json.Marshal(anonymousHeatmap)
+	require.NoError(t, err)
+	assert.NotContains(t, string(jsonData), publicRepo.Name)
+	assert.NotContains(t, string(jsonData), privateRepo.Name)
+	assert.NotContains(t, string(jsonData), "2222222")
+	assert.NotContains(t, string(jsonData), "3333333")
+}
+
+func heatmapTotal(data []*activities_model.UserHeatmapData) int64 {
+	var total int64
+	for _, item := range data {
+		total += item.Contributions
+	}
+	return total
 }

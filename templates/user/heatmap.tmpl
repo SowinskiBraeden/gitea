@@ -3,8 +3,16 @@
 <div class="activity-heatmap-container">
 	{{if .HeatmapYears}}
 		<div class="heatmap-year-nav flex-text-block">
-			{{range .HeatmapYears}}
-				<a class="ui tiny label{{if .Selected}} primary{{end}}" href="{{.URL}}" aria-current="{{if .Selected}}page{{else}}false{{end}}">{{.Year}}</a>
+			{{if .HeatmapPreviousYear}}
+				<a class="ui tiny basic icon button" href="{{.HeatmapPreviousYear.URL}}" aria-label="{{ctx.Locale.Tr "heatmap.previous_year"}}">{{svg "octicon-chevron-left"}}</a>
+			{{else}}
+				<button class="ui tiny basic icon button disabled" aria-label="{{ctx.Locale.Tr "heatmap.previous_year"}}">{{svg "octicon-chevron-left"}}</button>
+			{{end}}
+			<strong>{{.HeatmapSelectedYear}}</strong>
+			{{if .HeatmapNextYear}}
+				<a class="ui tiny basic icon button" href="{{.HeatmapNextYear.URL}}" aria-label="{{ctx.Locale.Tr "heatmap.next_year"}}">{{svg "octicon-chevron-right"}}</a>
+			{{else}}
+				<button class="ui tiny basic icon button disabled" aria-label="{{ctx.Locale.Tr "heatmap.next_year"}}">{{svg "octicon-chevron-right"}}</button>
 			{{end}}
 		</div>
 	{{end}}

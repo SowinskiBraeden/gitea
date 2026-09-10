@@ -10,6 +10,7 @@ import (
 
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/unittest"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
@@ -39,6 +40,7 @@ func assertNavbar(t *testing.T, doc *HTMLDoc) {
 	} else {
 		AssertHTMLElement(t, doc, ".menu a[href='/user/settings/keys']", true)
 	}
+	AssertHTMLElement(t, doc, ".menu a[href='/user/settings/contributions']", true)
 }
 
 func WithDisabledFeatures(t *testing.T, features ...string) {
@@ -54,6 +56,37 @@ func WithDisabledFeatures(t *testing.T, features ...string) {
 		setting.Admin.UserDisabledFeatures = global
 		setting.Admin.ExternalUserDisableFeatures = user
 	})
+}
+
+func TestUserSettingsContributions(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+
+	MakeRequest(t, NewRequest(t, "GET", "/user/settings/contributions"), http.StatusSeeOther)
+
+	session := loginUser(t, "user2")
+	resp := session.MakeRequest(t, NewRequest(t, "GET", "/user/settings/contributions"), http.StatusOK)
+	doc := NewHTMLParser(t, resp.Body)
+	assertNavbar(t, doc)
+	AssertHTMLElement(t, doc, `form[action="/user/settings/contributions/options"]`, true)
+	AssertHTMLElement(t, doc, `form[action="/user/settings/contributions/rebuild"]`, true)
+	AssertHTMLElement(t, doc, `form[action="/user/settings/contributions/rebuild"] input[name="user"]`, false)
+
+	req := NewRequestWithValues(t, "POST", "/user/settings/contributions/options", map[string]string{
+		"show_private": "on",
+		"years":        "2",
+	})
+	session.MakeRequest(t, req, http.StatusSeeOther)
+
+	u := unittest.AssertExistsAndLoadBean(t, &user_model.User{Name: "user2"})
+	showPrivate, err := user_model.GetUserSetting(t.Context(), u.ID, user_model.SettingsKeyContributionShowPrivate)
+	assert.NoError(t, err)
+	assert.Equal(t, "true", showPrivate)
+	years, err := user_model.GetUserSetting(t.Context(), u.ID, user_model.SettingsKeyContributionHistoryYears)
+	assert.NoError(t, err)
+	assert.Equal(t, "2", years)
+
+	req = NewRequest(t, "POST", "/user/settings/contributions/rebuild")
+	session.MakeRequest(t, req, http.StatusSeeOther)
 }
 
 func TestUserSettingsAccount(t *testing.T) {

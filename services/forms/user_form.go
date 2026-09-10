@@ -179,6 +179,12 @@ type UpdateProfileForm struct {
 	KeepActivityPrivate bool
 }
 
+type UpdateContributionSettingsForm struct {
+	middleware.FormDefaultValidator
+	ShowPrivate bool
+	Years       int
+}
+
 // UpdateLanguageForm form for updating profile
 type UpdateLanguageForm struct {
 	middleware.FormDefaultValidator

@@ -24,8 +24,8 @@ func heatmapSubject(ctx *context.Context) *user_model.User {
 	return ctx.Doer
 }
 
-func heatmapPeriod(ctx *context.Context, year int) activities_model.UserHeatmapPeriod {
-	return activities_model.ResolveUserHeatmapPeriod(heatmapSubject(ctx), year)
+func heatmapPeriod(ctx *context.Context, year int) (activities_model.UserHeatmapPeriod, error) {
+	return activities_model.ResolveUserHeatmapPeriod(ctx, heatmapSubject(ctx), year)
 }
 
 func appendHeatmapYear(rawURL string, year int) string {
@@ -41,25 +41,30 @@ func appendHeatmapYear(rawURL string, year int) string {
 
 func prepareHeatmapYears(ctx *context.Context, baseURL string, period activities_model.UserHeatmapPeriod) {
 	type heatmapYearLink struct {
-		Year     int
-		URL      string
-		Selected bool
+		Year int
+		URL  string
 	}
-	links := make([]heatmapYearLink, 0, len(period.Years))
 	subject := heatmapSubject(ctx)
-	for _, year := range period.Years {
+	linkForYear := func(year int) string {
 		linkURL := subject.HomeLink() + "?tab=activity&year=" + strconv.Itoa(year)
 		if ctx.Org.Organization != nil {
 			linkURL = appendHeatmapYear(baseURL, year)
 		}
-		links = append(links, heatmapYearLink{
-			Year:     year,
-			URL:      linkURL,
-			Selected: year == period.Year,
-		})
+		return linkURL
 	}
-	ctx.Data["HeatmapYears"] = links
+	var previousYear, nextYear *heatmapYearLink
+	for _, year := range period.Years {
+		switch year {
+		case period.Year - 1:
+			previousYear = &heatmapYearLink{Year: year, URL: linkForYear(year)}
+		case period.Year + 1:
+			nextYear = &heatmapYearLink{Year: year, URL: linkForYear(year)}
+		}
+	}
+	ctx.Data["HeatmapYears"] = period.Years
 	ctx.Data["HeatmapSelectedYear"] = period.Year
+	ctx.Data["HeatmapPreviousYear"] = previousYear
+	ctx.Data["HeatmapNextYear"] = nextYear
 }
 
 func prepareHeatmapURL(ctx *context.Context) {
@@ -68,7 +73,11 @@ func prepareHeatmapURL(ctx *context.Context) {
 		return
 	}
 
-	period := heatmapPeriod(ctx, ctx.FormInt("year"))
+	period, err := heatmapPeriod(ctx, ctx.FormInt("year"))
+	if err != nil {
+		ctx.ServerError("ResolveUserHeatmapPeriod", err)
+		return
+	}
 	if ctx.Org.Organization == nil {
 		// for individual user
 		heatmapURL := appendHeatmapYear(ctx.Doer.HomeLink()+"/-/heatmap", period.Year)
@@ -111,7 +120,11 @@ func DashboardHeatmap(ctx *context.Context) {
 	}
 	var data []*activities_model.UserHeatmapData
 	var err error
-	period := heatmapPeriod(ctx, ctx.FormInt("year"))
+	period, err := heatmapPeriod(ctx, ctx.FormInt("year"))
+	if err != nil {
+		ctx.ServerError("ResolveUserHeatmapPeriod", err)
+		return
+	}
 	if ctx.Org.Organization == nil {
 		data, err = activities_model.GetUserHeatmapDataByUserAndYear(ctx, heatmapSubject(ctx), ctx.Doer, period.Year)
 	} else {

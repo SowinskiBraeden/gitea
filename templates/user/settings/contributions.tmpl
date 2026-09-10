@@ -1,0 +1,38 @@
+{{template "user/settings/layout_head" (dict "pageClass" "user settings contributions")}}
+	<div class="user-setting-content">
+		<h4 class="ui top attached header">
+			{{ctx.Locale.Tr "settings.contribution_history"}}
+		</h4>
+		<div class="ui attached segment">
+			<form class="ui form" action="{{AppSubUrl}}/user/settings/contributions/options" method="post">
+				{{ctx.CsrfTokenHtml}}
+				<div class="field">
+					<div class="ui checkbox">
+						<label data-tooltip-content="{{ctx.Locale.Tr "settings.contribution_show_private_popup"}}"><strong>{{ctx.Locale.Tr "settings.contribution_show_private"}}</strong></label>
+						<input name="show_private" type="checkbox" {{if .ContributionShowPrivate}}checked{{end}}>
+					</div>
+					<p class="help">{{ctx.Locale.Tr "settings.contribution_show_private_desc"}}</p>
+				</div>
+				<div class="field">
+					<label for="history_years">{{ctx.Locale.Tr "settings.contribution_history_years"}}</label>
+					<input id="history_years" name="years" type="number" min="1" max="{{.ContributionHistoryMaxYears}}" value="{{.ContributionHistoryYears}}">
+					<p class="help">{{ctx.Locale.Tr "settings.contribution_history_years_desc" .ContributionHistoryMaxYears}}</p>
+				</div>
+				<div class="field">
+					<button class="ui primary button">{{ctx.Locale.Tr "save"}}</button>
+				</div>
+			</form>
+		</div>
+
+		<h4 class="ui top attached header">
+			{{ctx.Locale.Tr "settings.contribution_history_rebuild"}}
+		</h4>
+		<div class="ui attached segment">
+			<p>{{ctx.Locale.Tr "settings.contribution_history_rebuild_desc"}}</p>
+			<form class="ui form" action="{{AppSubUrl}}/user/settings/contributions/rebuild" method="post">
+				{{ctx.CsrfTokenHtml}}
+				<button class="ui primary button">{{ctx.Locale.Tr "settings.contribution_history_rebuild_button"}}</button>
+			</form>
+		</div>
+	</div>
+{{template "user/settings/layout_footer" .}}

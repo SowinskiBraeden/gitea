@@ -659,6 +659,11 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Post("/email", user_setting.NotificationsEmailPost)
 			m.Post("/actions", user_setting.NotificationsActionsEmailPost)
 		})
+		m.Group("/contributions", func() {
+			m.Get("", user_setting.Contributions)
+			m.Post("/options", web.Bind[*forms.UpdateContributionSettingsForm](), user_setting.ContributionsPost)
+			m.Post("/rebuild", user_setting.ContributionsRebuildPost)
+		})
 		m.Group("/security", func() {
 			m.Get("", security.Security)
 			m.Group("/two_factor", func() {

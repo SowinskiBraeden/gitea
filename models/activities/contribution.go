@@ -5,6 +5,7 @@ package activities
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"gitea.dev/models/db"
@@ -60,6 +61,23 @@ func DeleteUserContributionsByRepoID(ctx context.Context, repoID int64) error {
 	return err
 }
 
+// ReplaceUserContributionsForUser replaces a user's reconstructed contribution rows.
+func ReplaceUserContributionsForUser(ctx context.Context, userID int64, contributions []*UserContribution) error {
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		e := db.GetEngine(ctx)
+		if _, err := e.Where("user_id = ?", userID).Delete(&UserContribution{}); err != nil {
+			return err
+		}
+		for start, batchSize := 0, db.MaxBatchInsertSize(new(UserContribution)); start < len(contributions); start += batchSize {
+			end := min(start+batchSize, len(contributions))
+			if _, err := e.Insert(contributions[start:end]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func getUserContributionHeatmapData(ctx context.Context, user, doer *user_model.User, start, end time.Time) ([]*UserHeatmapData, error) {
 	hdata := make([]*UserHeatmapData, 0)
 	if user.IsOrganization() || !ActivityReadable(user, doer) {
@@ -70,7 +88,12 @@ func getUserContributionHeatmapData(ctx context.Context, user, doer *user_model.
 	cond := builder.Eq{"user_id": user.ID}.
 		And(builder.Gte{"contribution_unix": start.Unix()}).
 		And(builder.Lt{"contribution_unix": end.Unix()})
-	if doer == nil || !doer.IsAdmin {
+	canReadAll := doer != nil && (doer.IsAdmin || doer.ID == user.ID)
+	showPrivate, err := UserShowsPrivateContributions(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	if !canReadAll && !showPrivate {
 		cond = cond.And(builder.In("repo_id", repo_model.AccessibleRepoIDsQuery(doer)))
 	}
 
@@ -81,6 +104,21 @@ func getUserContributionHeatmapData(ctx context.Context, user, doer *user_model.
 		GroupBy(groupByName).
 		OrderBy("timestamp").
 		Find(&hdata)
+}
+
+func UserShowsPrivateContributions(ctx context.Context, user *user_model.User) (bool, error) {
+	if user == nil || user.ID == 0 {
+		return false, nil
+	}
+	value, err := user_model.GetUserSetting(ctx, user.ID, user_model.SettingsKeyContributionShowPrivate, "false")
+	if err != nil {
+		return false, err
+	}
+	show, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, nil
+	}
+	return show, nil
 }
 
 func heatmapGroupBy(column string) (string, string) {

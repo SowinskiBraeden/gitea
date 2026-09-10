@@ -18,6 +18,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/git/gitrepo"
+	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 
 	"github.com/stretchr/testify/assert"
@@ -26,6 +27,9 @@ import (
 
 func TestRebuildHistoricalContributionsForRepo(t *testing.T) {
 	unittest.PrepareTestEnv(t)
+	oldMaxYears := setting.Service.UserHeatmapMaxYears
+	setting.Service.UserHeatmapMaxYears = 10
+	defer func() { setting.Service.UserHeatmapMaxYears = oldMaxYears }()
 
 	owner := &user_model.User{
 		LowerName:      "historical-contributor",
@@ -62,6 +66,9 @@ func TestRebuildHistoricalContributionsForRepo(t *testing.T) {
 	repoPath := gitrepo.RepoLocalPath(gitrepo.CodeRepoByName(owner.Name, repo.Name))
 	require.NoError(t, git.InitRepositoryLocal(t.Context(), repoPath, true, git.Sha1ObjectFormat.Name()))
 	require.NoError(t, fastImportContributionHistory(t, repoPath))
+	require.NoError(t, gitcmd.NewCommand("branch").AddDynamicArguments("duplicate", "master").
+		WithRepo(gitrepo.RepositoryUnmanaged(filepath.Clean(repoPath))).
+		Run(t.Context()))
 
 	count, err := RebuildHistoricalContributionsForRepo(t.Context(), repo)
 	require.NoError(t, err)
@@ -83,6 +90,17 @@ func TestRebuildHistoricalContributionsForRepo(t *testing.T) {
 
 	unittest.AssertNotExistsBean(t, &activities_model.UserContribution{RepoID: repo.ID}, unittest.Cond("author_email = ?", "other@example.com"))
 	unittest.AssertNotExistsBean(t, &activities_model.UserContribution{RepoID: repo.ID}, unittest.Cond("contribution_unix = ?", contributionUnix(2021, 1, 1)))
+
+	result, err := RebuildHistoricalContributions(t.Context(), RebuildHistoricalContributionsOptions{RepoID: repo.ID, UserID: owner.ID, Years: 7})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, result.Repos)
+	assert.EqualValues(t, 1, result.Contributions)
+	assert.EqualValues(t, 1, result.ByYear[2020])
+
+	result, err = RebuildHistoricalContributions(t.Context(), RebuildHistoricalContributionsOptions{RepoID: repo.ID, UserID: owner.ID, Years: 7})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, result.Contributions)
+	assert.Equal(t, 1, unittest.GetCount(t, &activities_model.UserContribution{RepoID: repo.ID, UserID: owner.ID}))
 }
 
 func fastImportContributionHistory(t *testing.T, repoPath string) error {

@@ -6,10 +6,12 @@ package cmd
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 
 	repo_model "gitea.dev/models/repo"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
 	repo_service "gitea.dev/services/repository"
 
@@ -26,6 +28,14 @@ func newRebuildContributionsCommand() *cli.Command {
 				Name:  "repo",
 				Usage: "Only rebuild one repository, as owner/name or numeric repository ID",
 			},
+			&cli.StringFlag{
+				Name:  "user",
+				Usage: "Only rebuild contributions for one username",
+			},
+			&cli.IntFlag{
+				Name:  "years",
+				Usage: "Maximum number of calendar years to scan",
+			},
 		},
 	}
 }
@@ -38,7 +48,7 @@ func runRebuildContributions(ctx context.Context, c *cli.Command) error {
 		return err
 	}
 
-	var repoID int64
+	var repoID, userID int64
 	if repoArg := strings.TrimSpace(c.String("repo")); repoArg != "" {
 		if parsedID, err := strconv.ParseInt(repoArg, 10, 64); err == nil {
 			repoID = parsedID
@@ -54,11 +64,37 @@ func runRebuildContributions(ctx context.Context, c *cli.Command) error {
 			repoID = repo.ID
 		}
 	}
+	if userArg := strings.TrimSpace(c.String("user")); userArg != "" {
+		u, err := user_model.GetUserByName(ctx, userArg)
+		if err != nil {
+			return err
+		}
+		userID = u.ID
+		cprintf(c, "Resolving contributions for %s\n", u.Name)
+	} else {
+		cprintf(c, "Resolving historical contributions\n")
+	}
+	cprintf(c, "Scanning repositories...\n")
 
-	result, err := repo_service.RebuildHistoricalContributions(ctx, repo_service.RebuildHistoricalContributionsOptions{RepoID: repoID})
+	result, err := repo_service.RebuildHistoricalContributions(ctx, repo_service.RebuildHistoricalContributionsOptions{
+		RepoID: repoID,
+		UserID: userID,
+		Years:  c.Int("years"),
+	})
 	if err != nil {
 		return err
 	}
+	years := make([]int, 0, len(result.ByYear))
+	for year := range result.ByYear {
+		years = append(years, year)
+	}
+	slices.SortFunc(years, func(a, b int) int {
+		return b - a
+	})
+	for _, year := range years {
+		cprintf(c, "%d: %d contributions\n", year, result.ByYear[year])
+	}
 	cprintf(c, "Rebuilt historical contributions for %d repositories: %d contributions\n", result.Repos, result.Contributions)
+	cprintf(c, "Complete.\n")
 	return nil
 }

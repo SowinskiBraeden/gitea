@@ -76,6 +76,7 @@ var Service = struct {
 	NoReplyAddress                          string
 	UserLocationMapURL                      string
 	EnableUserHeatmap                       bool
+	UserHeatmapMaxYears                     int
 	AutoWatchNewRepos                       bool
 	AutoWatchOnChanges                      bool
 	DefaultOrgMemberVisible                 bool
@@ -105,6 +106,8 @@ var Service = struct {
 }{
 	AllowedUserVisibilityModesSlice: []bool{true, true, true},
 }
+
+const defaultUserHeatmapMaxYears = 10
 
 // AllowedVisibility store in a 3 item bool array what is allowed
 type AllowedVisibility []bool
@@ -212,6 +215,7 @@ func loadServiceFrom(rootCfg ConfigProvider) {
 	Service.NoReplyAddress = sec.Key("NO_REPLY_ADDRESS").MustString("noreply." + Domain)
 	Service.UserLocationMapURL = sec.Key("USER_LOCATION_MAP_URL").String()
 	Service.EnableUserHeatmap = sec.Key("ENABLE_USER_HEATMAP").MustBool(true)
+	Service.UserHeatmapMaxYears = max(sec.Key("USER_HEATMAP_MAX_YEARS").MustInt(defaultUserHeatmapMaxYears), 1)
 	Service.AutoWatchNewRepos = sec.Key("AUTO_WATCH_NEW_REPOS").MustBool(true)
 	Service.AutoWatchOnChanges = sec.Key("AUTO_WATCH_ON_CHANGES").MustBool(false)
 
