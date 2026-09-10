@@ -248,6 +248,67 @@ func TestGetUserHeatmapDataPrivateContributions(t *testing.T) {
 	assert.NotContains(t, string(jsonData), "3333333")
 }
 
+func TestGetUserContributionFeedItems(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, db.TruncateBeans(t.Context(), &activities_model.UserContribution{}))
+
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	publicRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	privateRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 2})
+	when := time.Date(2024, 9, 10, 12, 0, 0, 0, setting.DefaultUILocation)
+
+	require.NoError(t, activities_model.ReplaceUserContributionsForRepo(t.Context(), publicRepo.ID, []*activities_model.UserContribution{
+		{
+			UserID:           user.ID,
+			RepoID:           publicRepo.ID,
+			CommitSHA:        "1111111111111111111111111111111111111111",
+			ContributionType: activities_model.UserContributionTypeCommit,
+			ContributionUnix: timeutil.TimeStamp(when.Unix()),
+		},
+	}))
+	require.NoError(t, activities_model.ReplaceUserContributionsForRepo(t.Context(), privateRepo.ID, []*activities_model.UserContribution{
+		{
+			UserID:           user.ID,
+			RepoID:           privateRepo.ID,
+			CommitSHA:        "2222222222222222222222222222222222222222",
+			ContributionType: activities_model.UserContributionTypeCommit,
+			ContributionUnix: timeutil.TimeStamp(when.Add(time.Hour).Unix()),
+		},
+		{
+			UserID:           user.ID,
+			RepoID:           privateRepo.ID,
+			CommitSHA:        "3333333333333333333333333333333333333333",
+			ContributionType: activities_model.UserContributionTypeCommit,
+			ContributionUnix: timeutil.TimeStamp(when.Add(2 * time.Hour).Unix()),
+		},
+	}))
+
+	require.NoError(t, user_model.SetUserSetting(t.Context(), user.ID, user_model.SettingsKeyContributionShowPrivate, "false"))
+	anonymousItems, err := activities_model.GetUserContributionFeedItems(t.Context(), user, nil, "2024-09-10")
+	require.NoError(t, err)
+	require.Len(t, anonymousItems, 1)
+	assert.Equal(t, publicRepo.ID, anonymousItems[0].RepoID)
+	assert.EqualValues(t, 1, anonymousItems[0].Count)
+	assert.False(t, anonymousItems[0].IsPrivate)
+
+	ownerItems, err := activities_model.GetUserContributionFeedItems(t.Context(), user, user, "2024-09-10")
+	require.NoError(t, err)
+	require.Len(t, ownerItems, 2)
+	assert.Equal(t, publicRepo.ID, ownerItems[0].RepoID)
+	assert.True(t, ownerItems[1].IsPrivate)
+	assert.EqualValues(t, 2, ownerItems[1].Count)
+	assert.Nil(t, ownerItems[1].Repo)
+
+	require.NoError(t, user_model.SetUserSetting(t.Context(), user.ID, user_model.SettingsKeyContributionShowPrivate, "true"))
+	anonymousItems, err = activities_model.GetUserContributionFeedItems(t.Context(), user, nil, "2024-09-10")
+	require.NoError(t, err)
+	require.Len(t, anonymousItems, 2)
+	assert.Equal(t, publicRepo.ID, anonymousItems[0].RepoID)
+	assert.True(t, anonymousItems[1].IsPrivate)
+	assert.EqualValues(t, 2, anonymousItems[1].Count)
+	assert.Nil(t, anonymousItems[1].Repo)
+}
+
 func heatmapTotal(data []*activities_model.UserHeatmapData) int64 {
 	var total int64
 	for _, item := range data {

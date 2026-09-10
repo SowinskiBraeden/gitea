@@ -126,5 +126,30 @@
 			</div>
 		</div>
 	{{end}}
+	{{range .HistoricalContributionFeedItems}}
+		<div class="item">
+			<div class="item-leading">
+				{{ctx.AvatarUtils.Avatar $.ContextUser}}
+			</div>
+			<div class="item-main tw-gap-2">
+				<div>
+					{{if gt $.ContextUser.ID 0}}
+						<a href="{{$.ContextUser.HomeLink}}" title="{{$.ContextUser.Name}}">{{$.ContextUser.DisplayName}}</a>
+					{{else}}
+						{{$.ContextUser.DisplayName}}
+					{{end}}
+					{{if .IsPrivate}}
+						{{ctx.Locale.TrN .Count "action.private_contribution_1" "action.private_contribution_n" .Count}}
+					{{else if .Repo}}
+						{{ctx.Locale.TrN .Count "action.historical_contribution_1" "action.historical_contribution_n" .Count .Repo.Link .Repo.FullName}}
+					{{end}}
+					{{DateUtils.TimeSince .ContributionUnix.AsTime}}
+				</div>
+			</div>
+			<div class="item-trailing">
+				{{svg "octicon-git-commit" 32 "tw-text-text-light tw-mr-1"}}
+			</div>
+		</div>
+	{{end}}
 	{{template "base/paginate" .}}
 </div>

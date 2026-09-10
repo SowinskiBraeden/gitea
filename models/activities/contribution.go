@@ -35,6 +35,15 @@ type UserContribution struct {
 	UpdatedUnix      timeutil.TimeStamp   `xorm:"updated"`
 }
 
+type UserContributionFeedItem struct {
+	UserID           int64
+	RepoID           int64
+	Repo             *repo_model.Repository `xorm:"-"`
+	Count            int64
+	IsPrivate        bool
+	ContributionUnix timeutil.TimeStamp
+}
+
 func init() {
 	db.RegisterModel(new(UserContribution))
 }
@@ -104,6 +113,91 @@ func getUserContributionHeatmapData(ctx context.Context, user, doer *user_model.
 		GroupBy(groupByName).
 		OrderBy("timestamp").
 		Find(&hdata)
+}
+
+func GetUserContributionFeedItems(ctx context.Context, user, doer *user_model.User, date string) ([]*UserContributionFeedItem, error) {
+	items := make([]*UserContributionFeedItem, 0)
+	if user == nil || user.IsOrganization() || date == "" || !ActivityReadable(user, doer) {
+		return items, nil
+	}
+
+	start, err := time.ParseInLocation("2006-01-02", date, setting.DefaultUILocation)
+	if err != nil {
+		return items, nil
+	}
+	end := start.AddDate(0, 0, 1)
+
+	canReadAll := doer != nil && (doer.IsAdmin || doer.ID == user.ID)
+	showPrivate, err := UserShowsPrivateContributions(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+
+	baseCond := builder.Eq{"user_id": user.ID}.
+		And(builder.Gte{"contribution_unix": start.Unix()}).
+		And(builder.Lt{"contribution_unix": end.Unix()})
+
+	accessibleCond := baseCond.And(builder.In("repo_id", userContributionPublicRepoIDsQuery(doer, canReadAll)))
+	if err := db.GetEngine(ctx).
+		Select("user_id, repo_id, count(*) AS count, min(contribution_unix) AS contribution_unix").
+		Table("user_contribution").
+		Where(accessibleCond).
+		GroupBy("user_id, repo_id").
+		OrderBy("contribution_unix DESC").
+		Find(&items); err != nil {
+		return nil, err
+	}
+	if err := loadUserContributionFeedItemRepos(ctx, items); err != nil {
+		return nil, err
+	}
+
+	if canReadAll || showPrivate {
+		privateCond := baseCond.And(builder.NotIn("repo_id", userContributionPublicRepoIDsQuery(doer, canReadAll)))
+		privateItem := new(UserContributionFeedItem)
+		has, err := db.GetEngine(ctx).
+			Select("user_id, count(*) AS count, min(contribution_unix) AS contribution_unix").
+			Table("user_contribution").
+			Where(privateCond).
+			Get(privateItem)
+		if err != nil {
+			return nil, err
+		}
+		if has && privateItem.Count > 0 {
+			privateItem.UserID = user.ID
+			privateItem.IsPrivate = true
+			items = append(items, privateItem)
+		}
+	}
+
+	return items, nil
+}
+
+func userContributionPublicRepoIDsQuery(doer *user_model.User, canReadAll bool) *builder.Builder {
+	cond := builder.NewCond().And(builder.Eq{"is_private": false})
+	if !canReadAll {
+		cond = cond.And(builder.In("id", repo_model.AccessibleRepoIDsQuery(doer)))
+	}
+	return builder.Select("id").From("repository").Where(cond)
+}
+
+func loadUserContributionFeedItemRepos(ctx context.Context, items []*UserContributionFeedItem) error {
+	repoIDs := make([]int64, 0, len(items))
+	for _, item := range items {
+		if item.RepoID != 0 {
+			repoIDs = append(repoIDs, item.RepoID)
+		}
+	}
+	if len(repoIDs) == 0 {
+		return nil
+	}
+	repos := make(map[int64]*repo_model.Repository, len(repoIDs))
+	if err := db.GetEngine(ctx).In("id", repoIDs).Find(&repos); err != nil {
+		return err
+	}
+	for _, item := range items {
+		item.Repo = repos[item.RepoID]
+	}
+	return nil
 }
 
 func UserShowsPrivateContributions(ctx context.Context, user *user_model.User) (bool, error) {

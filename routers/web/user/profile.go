@@ -195,10 +195,22 @@ func prepareUserProfileTabData(ctx *context.Context, profileDbRepo *repo_model.R
 			ctx.ServerError("GetFeeds", err)
 			return
 		}
+		if date != "" && feedCount == 0 {
+			contributionItems, err := activities_model.GetUserContributionFeedItems(ctx, ctx.ContextUser, ctx.Doer, date)
+			if err != nil {
+				ctx.ServerError("GetUserContributionFeedItems", err)
+				return
+			}
+			ctx.Data["HistoricalContributionFeedItems"] = contributionItems
+			curRows = len(contributionItems)
+			total = int64(len(contributionItems))
+		}
 		ctx.Data["Feeds"] = items
 		ctx.Data["Date"] = date
-		curRows = len(items)
-		total = feedCount
+		if curRows == 0 {
+			curRows = len(items)
+			total = feedCount
+		}
 	case "stars":
 		ctx.Data["PageIsProfileStarList"] = true
 		ctx.Data["ShowRepoOwnerOnList"] = true
