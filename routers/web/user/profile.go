@@ -21,6 +21,7 @@ import (
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
+	"gitea.dev/modules/timeutil"
 	"gitea.dev/routers/web/feed"
 	"gitea.dev/routers/web/org"
 	shared_user "gitea.dev/routers/web/shared/user"
@@ -280,6 +281,10 @@ func prepareUserProfileTabData(ctx *context.Context, profileDbRepo *repo_model.R
 				ctx.Data["ProfileReadmeContent"] = profileContent
 			}
 		}
+		if err := prepareUserProfileLanguageStats(ctx); err != nil {
+			ctx.ServerError("GetUserLanguageStats", err)
+			return
+		}
 	case "organizations":
 		orgs, count, err := db.FindAndCount[organization.Organization](ctx, organization.FindOrgOptions{
 			UserID:            ctx.ContextUser.ID,
@@ -337,6 +342,30 @@ func prepareUserProfileTabData(ctx *context.Context, profileDbRepo *repo_model.R
 		pager.WithUnlimitedPaging(curRows, curRows == pagingNum)
 	}
 	ctx.Data["Page"] = pager
+}
+
+func prepareUserProfileLanguageStats(ctx *context.Context) error {
+	canReadAll := ctx.Doer != nil && (ctx.Doer.IsAdmin || ctx.Doer.ID == ctx.ContextUser.ID)
+	showPrivate, err := activities_model.UserShowsPrivateContributions(ctx, ctx.ContextUser)
+	if err != nil {
+		return err
+	}
+	includePrivate := canReadAll || showPrivate
+	if includePrivate && context.TokenIsPublicOnly(ctx) {
+		includePrivate = false
+	}
+
+	year := timeutil.TimeStampNow().AsTime().In(setting.DefaultUILocation).Year()
+	stats, err := activities_model.GetUserLanguageStats(ctx, ctx.ContextUser.ID, year, includePrivate)
+	if err != nil {
+		return err
+	}
+	if len(stats) > 8 {
+		stats = stats[:8]
+	}
+	ctx.Data["UserLanguageStats"] = stats
+	ctx.Data["UserLanguageStatsYear"] = year
+	return nil
 }
 
 // ActionUserFollow is for follow/unfollow user request

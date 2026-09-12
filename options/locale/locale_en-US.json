@@ -204,6 +204,7 @@
   "heatmap.more": "More",
   "heatmap.previous_year": "Previous year",
   "heatmap.next_year": "Next year",
+  "language.changed_lines": "%s changed lines",
   "editor.buttons.heading.tooltip": "Add heading",
   "editor.buttons.bold.tooltip": "Add bold text",
   "editor.buttons.italic.tooltip": "Add italic text",

@@ -28,6 +28,7 @@
 					{{template "repo/user_cards" .}}
 				{{else if eq .TabName "overview"}}
 					<div id="readme_profile" class="render-content markup">{{.ProfileReadmeContent}}</div>
+					{{template "user/overview/language_stats" .}}
 				{{else if eq .TabName "organizations"}}
 					{{template "repo/user_cards" .}}
 				{{else}}

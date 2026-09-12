@@ -10,6 +10,7 @@ import (
 	"gitea.dev/models/db"
 	"gitea.dev/modules/timeutil"
 
+	"github.com/go-enry/go-enry/v2"
 	"xorm.io/builder"
 )
 
@@ -42,6 +43,7 @@ type UserLanguageStatSummary struct {
 	ChangedLines int64 `xorm:"-"`
 	Commits      int64
 	Percentage   float64 `xorm:"-"`
+	Color        string  `xorm:"-"`
 }
 
 func init() {
@@ -106,6 +108,7 @@ func GetUserLanguageStats(ctx context.Context, userID int64, year int, includePr
 	var total int64
 	for _, stat := range stats {
 		stat.ChangedLines = stat.Additions + stat.Deletions
+		stat.Color = enry.GetColor(stat.Language)
 		total += stat.ChangedLines
 	}
 	if total > 0 {

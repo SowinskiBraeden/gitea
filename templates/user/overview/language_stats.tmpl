@@ -1,0 +1,22 @@
+{{if .UserLanguageStats}}
+<div class="ui segment tw-mt-4">
+	<div class="tw-flex tw-items-center tw-justify-between tw-gap-2 tw-mb-2">
+		<h3 class="ui header tw-m-0">{{ctx.Locale.Tr "repo.repo_lang"}} <span class="tw-text-text-light">{{.UserLanguageStatsYear}}</span></h3>
+	</div>
+	<div class="language-stats">
+		{{range .UserLanguageStats}}
+			<div class="bar" style="width: {{printf "%.1f" .Percentage}}%; background-color: {{.Color}}" data-tooltip-content="{{.Language}}" data-tooltip-follow-cursor="horizontal"></div>
+		{{end}}
+	</div>
+	<div class="language-stats-details">
+		{{range .UserLanguageStats}}
+			<div class="item">
+				<i class="color-icon" style="background-color: {{.Color}}"></i>
+				<strong class="tw-font-semibold">{{Iif (eq .Language "other") (ctx.Locale.Tr "repo.language_other") .Language}}</strong>
+				<span>{{printf "%.1f" .Percentage}}%</span>
+				<span class="tw-text-text-light">{{ctx.Locale.Tr "language.changed_lines" (ctx.Locale.PrettyNumber .ChangedLines)}}</span>
+			</div>
+		{{end}}
+	</div>
+</div>
+{{end}}
