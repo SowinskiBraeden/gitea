@@ -66,8 +66,14 @@ func ReplaceUserContributionsForRepo(ctx context.Context, repoID int64, contribu
 }
 
 func DeleteUserContributionsByRepoID(ctx context.Context, repoID int64) error {
-	_, err := db.GetEngine(ctx).Where("repo_id = ?", repoID).Delete(&UserContribution{})
-	return err
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		e := db.GetEngine(ctx)
+		if _, err := e.Where("repo_id = ?", repoID).Delete(&UserContribution{}); err != nil {
+			return err
+		}
+		_, err := e.Where("repo_id = ?", repoID).Delete(&UserLanguageStat{})
+		return err
+	})
 }
 
 // ReplaceUserContributionsForUser replaces a user's reconstructed contribution rows.

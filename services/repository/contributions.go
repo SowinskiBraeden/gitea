@@ -18,6 +18,8 @@ import (
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
+	"gitea.dev/modules/git/attribute"
+	"gitea.dev/modules/git/languagestats"
 	"gitea.dev/modules/graceful"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/queue"
@@ -124,6 +126,27 @@ type RebuildHistoricalContributionsResult struct {
 	ByYear        map[int]int64
 }
 
+type historicalContributionRepoResult struct {
+	Contributions []*activities_model.UserContribution
+	LanguageStats []*activities_model.UserLanguageStat
+}
+
+type historicalLanguageStatKey struct {
+	UserID     int64
+	RepoID     int64
+	Year       int
+	Language   string
+	Visibility activities_model.UserLanguageStatVisibility
+}
+
+type historicalLanguageStatAccumulator struct {
+	additions int64
+	deletions int64
+	commits   int64
+}
+
+const historicalLanguageFileSizeLimit int64 = 16 * 1024
+
 func RebuildHistoricalContributions(ctx context.Context, opts RebuildHistoricalContributionsOptions) (*RebuildHistoricalContributionsResult, error) {
 	var err error
 	opts, err = normalizeHistoricalContributionOptions(ctx, opts)
@@ -136,18 +159,21 @@ func RebuildHistoricalContributions(ctx context.Context, opts RebuildHistoricalC
 		if err != nil {
 			return nil, err
 		}
-		contributions, err := collectHistoricalContributionsForRepo(ctx, repo, opts)
+		repoResult, err := collectHistoricalContributionDataForRepo(ctx, repo, opts)
 		if err != nil {
 			return nil, err
 		}
 		if opts.UserID == 0 {
-			if err := activities_model.ReplaceUserContributionsForRepo(ctx, repo.ID, contributions); err != nil {
+			if err := activities_model.ReplaceUserContributionsForRepo(ctx, repo.ID, repoResult.Contributions); err != nil {
 				return nil, err
 			}
-		} else if err := replaceUserContributionsForRepos(ctx, opts.UserID, []int64{repo.ID}, contributions); err != nil {
+			if err := activities_model.ReplaceUserLanguageStatsForRepo(ctx, repo.ID, repoResult.LanguageStats); err != nil {
+				return nil, err
+			}
+		} else if err := replaceUserContributionDataForRepos(ctx, opts.UserID, []int64{repo.ID}, repoResult); err != nil {
 			return nil, err
 		}
-		result.addRepo(contributions)
+		result.addRepo(repoResult.Contributions)
 		return result, nil
 	}
 	if opts.UserID != 0 {
@@ -171,33 +197,40 @@ func RebuildHistoricalContributions(ctx context.Context, opts RebuildHistoricalC
 		}
 		for _, repo := range repos {
 			lastID = repo.ID
-			contributions, err := collectHistoricalContributionsForRepo(ctx, repo, opts)
+			repoResult, err := collectHistoricalContributionDataForRepo(ctx, repo, opts)
 			if err != nil {
 				log.Warn("RebuildHistoricalContributionsForRepo[%s]: %v", repo.FullName(), err)
 				continue
 			}
-			if err := activities_model.ReplaceUserContributionsForRepo(ctx, repo.ID, contributions); err != nil {
+			if err := activities_model.ReplaceUserContributionsForRepo(ctx, repo.ID, repoResult.Contributions); err != nil {
 				return nil, err
 			}
-			result.addRepo(contributions)
+			if err := activities_model.ReplaceUserLanguageStatsForRepo(ctx, repo.ID, repoResult.LanguageStats); err != nil {
+				return nil, err
+			}
+			result.addRepo(repoResult.Contributions)
 		}
 	}
 }
 
 func RebuildHistoricalContributionsForRepo(ctx context.Context, repo *repo_model.Repository) (int, error) {
-	contributions, err := collectHistoricalContributionsForRepo(ctx, repo, RebuildHistoricalContributionsOptions{})
+	repoResult, err := collectHistoricalContributionDataForRepo(ctx, repo, RebuildHistoricalContributionsOptions{})
 	if err != nil {
 		return 0, err
 	}
-	if err := activities_model.ReplaceUserContributionsForRepo(ctx, repo.ID, contributions); err != nil {
+	if err := activities_model.ReplaceUserContributionsForRepo(ctx, repo.ID, repoResult.Contributions); err != nil {
 		return 0, err
 	}
-	return len(contributions), nil
+	if err := activities_model.ReplaceUserLanguageStatsForRepo(ctx, repo.ID, repoResult.LanguageStats); err != nil {
+		return 0, err
+	}
+	return len(repoResult.Contributions), nil
 }
 
 func rebuildHistoricalContributionsForUser(ctx context.Context, opts RebuildHistoricalContributionsOptions) (*RebuildHistoricalContributionsResult, error) {
 	result := &RebuildHistoricalContributionsResult{ByYear: map[int]int64{}}
 	contributions := make([]*activities_model.UserContribution, 0)
+	languageStats := make([]*activities_model.UserLanguageStat, 0)
 
 	const pageSize = repo_model.RepositoryListDefaultPageSize
 	var lastID int64
@@ -216,24 +249,28 @@ func rebuildHistoricalContributionsForUser(ctx context.Context, opts RebuildHist
 		}
 		for _, repo := range repos {
 			lastID = repo.ID
-			repoContributions, err := collectHistoricalContributionsForRepo(ctx, repo, opts)
+			repoResult, err := collectHistoricalContributionDataForRepo(ctx, repo, opts)
 			if err != nil {
 				log.Warn("RebuildHistoricalContributionsForRepo[%s]: %v", repo.FullName(), err)
 				continue
 			}
-			result.addRepo(repoContributions)
-			contributions = append(contributions, repoContributions...)
+			result.addRepo(repoResult.Contributions)
+			contributions = append(contributions, repoResult.Contributions...)
+			languageStats = append(languageStats, repoResult.LanguageStats...)
 		}
 	}
 	if err := activities_model.ReplaceUserContributionsForUser(ctx, opts.UserID, contributions); err != nil {
 		return nil, err
 	}
+	if err := activities_model.ReplaceUserLanguageStatsForUser(ctx, opts.UserID, languageStats); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
-func collectHistoricalContributionsForRepo(ctx context.Context, repo *repo_model.Repository, opts RebuildHistoricalContributionsOptions) ([]*activities_model.UserContribution, error) {
+func collectHistoricalContributionDataForRepo(ctx context.Context, repo *repo_model.Repository, opts RebuildHistoricalContributionsOptions) (*historicalContributionRepoResult, error) {
 	if repo.IsEmpty || repo.DefaultBranch == "" {
-		return nil, nil
+		return &historicalContributionRepoResult{}, nil
 	}
 
 	userEmails, err := contributionUserEmails(ctx, opts.UserID)
@@ -244,6 +281,13 @@ func collectHistoricalContributionsForRepo(ctx context.Context, repo *repo_model
 	since := historicalContributionStart(years)
 	emailUserIDs := make(map[string]int64, len(userEmails))
 	contributions := make([]*activities_model.UserContribution, 0)
+	languageStats := make(map[historicalLanguageStatKey]*historicalLanguageStatAccumulator)
+	var gitRepo *git.Repository
+	defer func() {
+		if gitRepo != nil {
+			gitRepo.Close()
+		}
+	}()
 	revision := git.BranchPrefix + repo.DefaultBranch
 	err = git.WalkCommitAuthorsSince(ctx, repo, revision, since, func(author git.CommitAuthor) error {
 		if author.When.Before(since) {
@@ -275,23 +319,189 @@ func collectHistoricalContributionsForRepo(ctx context.Context, repo *repo_model
 		if userID == 0 {
 			return nil
 		}
+		contributionUnix := timeutil.TimeStamp(author.When.Unix())
 		contributions = append(contributions, &activities_model.UserContribution{
 			UserID:           userID,
 			RepoID:           repo.ID,
 			CommitSHA:        author.SHA,
 			AuthorEmail:      email,
 			ContributionType: activities_model.UserContributionTypeCommit,
-			ContributionUnix: timeutil.TimeStamp(author.When.Unix()),
+			ContributionUnix: contributionUnix,
 		})
+		if gitRepo == nil {
+			openedRepo, err := git.OpenRepository(ctx, repo)
+			if err != nil {
+				log.Warn("OpenRepository[%s] for historical language stats: %v", repo.FullName(), err)
+				return nil
+			}
+			gitRepo = openedRepo
+		}
+		if err := collectHistoricalLanguageStatsForCommit(ctx, gitRepo, repo, userID, author.SHA, contributionUnix, languageStats); err != nil {
+			log.Warn("CollectHistoricalLanguageStatsForCommit[%s:%s]: %v", repo.FullName(), author.SHA, err)
+		}
 		return nil
 	})
 	if err != nil {
 		if git.IsErrNotExist(err) {
-			return nil, nil
+			return &historicalContributionRepoResult{}, nil
 		}
 		return nil, fmt.Errorf("WalkCommitAuthors: %w", err)
 	}
-	return contributions, nil
+	return &historicalContributionRepoResult{
+		Contributions: contributions,
+		LanguageStats: historicalLanguageStatsFromMap(languageStats),
+	}, nil
+}
+
+func collectHistoricalLanguageStatsForCommit(ctx context.Context, gitRepo *git.Repository, repo *repo_model.Repository, userID int64, commitSHA string, contributionUnix timeutil.TimeStamp, languageStats map[historicalLanguageStatKey]*historicalLanguageStatAccumulator) error {
+	fileStats, err := git.GetCommitFileStats(ctx, gitRepo, commitSHA)
+	if err != nil {
+		return err
+	}
+	if len(fileStats) == 0 {
+		return nil
+	}
+	commit, err := gitRepo.GetCommit(ctx, commitSHA)
+	if err != nil {
+		return err
+	}
+
+	visibility := activities_model.UserLanguageStatVisibilityPublic
+	if repo.IsPrivate {
+		visibility = activities_model.UserLanguageStatVisibilityPrivate
+	}
+	year := contributionUnix.AsTime().In(setting.DefaultUILocation).Year()
+	checkers := map[string]*attribute.BatchChecker{}
+	defer func() {
+		for _, checker := range checkers {
+			_ = checker.Close()
+		}
+	}()
+
+	commitLanguages := map[string]struct{}{}
+	for _, fileStat := range fileStats {
+		if fileStat.IsBinary || fileStat.Additions+fileStat.Deletions == 0 {
+			continue
+		}
+		language := detectHistoricalChangedFileLanguage(ctx, gitRepo, commit, fileStat, checkers)
+		if language == "" {
+			continue
+		}
+		key := historicalLanguageStatKey{
+			UserID:     userID,
+			RepoID:     repo.ID,
+			Year:       year,
+			Language:   language,
+			Visibility: visibility,
+		}
+		accumulator := languageStats[key]
+		if accumulator == nil {
+			accumulator = &historicalLanguageStatAccumulator{}
+			languageStats[key] = accumulator
+		}
+		accumulator.additions += fileStat.Additions
+		accumulator.deletions += fileStat.Deletions
+		commitLanguages[language] = struct{}{}
+	}
+	for language := range commitLanguages {
+		key := historicalLanguageStatKey{
+			UserID:     userID,
+			RepoID:     repo.ID,
+			Year:       year,
+			Language:   language,
+			Visibility: visibility,
+		}
+		languageStats[key].commits++
+	}
+	return nil
+}
+
+func detectHistoricalChangedFileLanguage(ctx context.Context, gitRepo *git.Repository, commit *git.Commit, fileStat git.CommitFileStat, checkers map[string]*attribute.BatchChecker) string {
+	candidates := []struct {
+		commit *git.Commit
+		path   string
+	}{
+		{commit: commit, path: fileStat.Path},
+	}
+	if fileStat.OldPath != "" && fileStat.OldPath != fileStat.Path {
+		candidates = append(candidates, struct {
+			commit *git.Commit
+			path   string
+		}{commit: commit, path: fileStat.OldPath})
+	}
+	if parent, err := commit.Parent(ctx, gitRepo, 0); err == nil {
+		if fileStat.OldPath != "" {
+			candidates = append(candidates, struct {
+				commit *git.Commit
+				path   string
+			}{commit: parent, path: fileStat.OldPath})
+		}
+		candidates = append(candidates, struct {
+			commit *git.Commit
+			path   string
+		}{commit: parent, path: fileStat.Path})
+	}
+
+	for _, candidate := range candidates {
+		if candidate.path == "" {
+			continue
+		}
+		content, ok := readHistoricalLanguageBlob(ctx, gitRepo, candidate.commit, candidate.path)
+		if !ok {
+			continue
+		}
+		attrs := historicalLanguageAttributes(ctx, gitRepo, candidate.commit.ID.String(), candidate.path, checkers)
+		if language := languagestats.DetectFileLanguage(candidate.path, content, attrs); language != "" {
+			return language
+		}
+	}
+	return ""
+}
+
+func readHistoricalLanguageBlob(ctx context.Context, gitRepo *git.Repository, commit *git.Commit, treePath string) ([]byte, bool) {
+	blob, err := commit.GetBlobByPath(ctx, gitRepo, treePath)
+	if err != nil {
+		return nil, false
+	}
+	content, err := blob.GetBlobBytes(ctx, historicalLanguageFileSizeLimit)
+	if err != nil {
+		return nil, false
+	}
+	return content, true
+}
+
+func historicalLanguageAttributes(ctx context.Context, gitRepo *git.Repository, treeish, treePath string, checkers map[string]*attribute.BatchChecker) *attribute.Attributes {
+	checker := checkers[treeish]
+	if checker == nil {
+		var err error
+		checker, err = attribute.NewBatchChecker(ctx, gitRepo, treeish, attribute.LinguistAttributes)
+		if err != nil {
+			return nil
+		}
+		checkers[treeish] = checker
+	}
+	attrs, err := checker.CheckPath(treePath)
+	if err != nil {
+		return nil
+	}
+	return attrs
+}
+
+func historicalLanguageStatsFromMap(languageStats map[historicalLanguageStatKey]*historicalLanguageStatAccumulator) []*activities_model.UserLanguageStat {
+	stats := make([]*activities_model.UserLanguageStat, 0, len(languageStats))
+	for key, accumulator := range languageStats {
+		stats = append(stats, &activities_model.UserLanguageStat{
+			UserID:     key.UserID,
+			RepoID:     key.RepoID,
+			Year:       key.Year,
+			Language:   key.Language,
+			Visibility: key.Visibility,
+			Additions:  accumulator.additions,
+			Deletions:  accumulator.deletions,
+			Commits:    accumulator.commits,
+		})
+	}
+	return stats
 }
 
 func contributionUserEmails(ctx context.Context, userID int64) (map[string]struct{}, error) {
@@ -309,7 +519,7 @@ func contributionUserEmails(ctx context.Context, userID int64) (map[string]struc
 	return userEmails, nil
 }
 
-func replaceUserContributionsForRepos(ctx context.Context, userID int64, repoIDs []int64, contributions []*activities_model.UserContribution) error {
+func replaceUserContributionDataForRepos(ctx context.Context, userID int64, repoIDs []int64, result *historicalContributionRepoResult) error {
 	slices.Sort(repoIDs)
 	repoIDs = slices.Compact(repoIDs)
 	return db.WithTx(ctx, func(ctx context.Context) error {
@@ -318,12 +528,26 @@ func replaceUserContributionsForRepos(ctx context.Context, userID int64, repoIDs
 			if _, err := e.Where("user_id = ?", userID).Delete(&activities_model.UserContribution{}); err != nil {
 				return err
 			}
-		} else if _, err := e.Where("user_id = ?", userID).In("repo_id", repoIDs).Delete(&activities_model.UserContribution{}); err != nil {
-			return err
+			if _, err := e.Where("user_id = ?", userID).Delete(&activities_model.UserLanguageStat{}); err != nil {
+				return err
+			}
+		} else {
+			if _, err := e.Where("user_id = ?", userID).In("repo_id", repoIDs).Delete(&activities_model.UserContribution{}); err != nil {
+				return err
+			}
+			if _, err := e.Where("user_id = ?", userID).In("repo_id", repoIDs).Delete(&activities_model.UserLanguageStat{}); err != nil {
+				return err
+			}
 		}
-		for start, batchSize := 0, db.MaxBatchInsertSize(new(activities_model.UserContribution)); start < len(contributions); start += batchSize {
-			end := min(start+batchSize, len(contributions))
-			if _, err := e.Insert(contributions[start:end]); err != nil {
+		for start, batchSize := 0, db.MaxBatchInsertSize(new(activities_model.UserContribution)); start < len(result.Contributions); start += batchSize {
+			end := min(start+batchSize, len(result.Contributions))
+			if _, err := e.Insert(result.Contributions[start:end]); err != nil {
+				return err
+			}
+		}
+		for start, batchSize := 0, db.MaxBatchInsertSize(new(activities_model.UserLanguageStat)); start < len(result.LanguageStats); start += batchSize {
+			end := min(start+batchSize, len(result.LanguageStats))
+			if _, err := e.Insert(result.LanguageStats[start:end]); err != nil {
 				return err
 			}
 		}

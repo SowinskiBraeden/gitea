@@ -8,8 +8,12 @@ import (
 	"strings"
 	"unicode"
 
+	"gitea.dev/modules/analyze"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/attribute"
+	"gitea.dev/modules/optional"
+
+	"github.com/go-enry/go-enry/v2"
 )
 
 const (
@@ -62,4 +66,72 @@ func GetFileLanguage(ctx context.Context, gitRepo *git.Repository, treeish, tree
 	}
 
 	return attributesMap[treePath].GetLanguage().Value(), nil
+}
+
+// DetectFileLanguage applies the same Linguist/Enry inclusion rules used by repository language stats.
+func DetectFileLanguage(treePath string, content []byte, attrs *attribute.Attributes) string {
+	isVendored := optional.None[bool]()
+	isDocumentation := optional.None[bool]()
+	isDetectable := optional.None[bool]()
+	attrLinguistGenerated := optional.None[bool]()
+
+	if attrs != nil {
+		if isVendored = attrs.GetVendored(); isVendored.ValueOrDefault(false) {
+			return ""
+		}
+
+		if attrLinguistGenerated = attrs.GetGenerated(); attrLinguistGenerated.ValueOrDefault(false) {
+			return ""
+		}
+
+		if isDocumentation = attrs.GetDocumentation(); isDocumentation.ValueOrDefault(false) {
+			return ""
+		}
+
+		if isDetectable = attrs.GetDetectable(); !isDetectable.ValueOrDefault(true) {
+			return ""
+		}
+
+		if hasLanguage := attrs.GetLanguage(); hasLanguage.Value() != "" {
+			return normalizeLanguageName(hasLanguage.Value())
+		}
+	}
+
+	if (!isVendored.Has() && analyze.IsVendor(treePath)) ||
+		enry.IsDotFile(treePath) ||
+		(!isDocumentation.Has() && enry.IsDocumentation(treePath)) ||
+		(!isDetectable.Has() && enry.IsConfiguration(treePath)) {
+		return ""
+	}
+
+	var isGenerated bool
+	if attrLinguistGenerated.Has() {
+		isGenerated = attrLinguistGenerated.Value()
+	} else {
+		isGenerated = enry.IsGenerated(treePath, content)
+	}
+	if isGenerated {
+		return ""
+	}
+
+	language := analyze.GetCodeLanguage(treePath, content)
+	if language == "" {
+		return ""
+	}
+	language = normalizeLanguageName(language)
+	langType := enry.GetLanguageType(language)
+	if langType == enry.Programming || langType == enry.Markup || isDetectable.ValueOrDefault(false) {
+		return language
+	}
+	return ""
+}
+
+func normalizeLanguageName(language string) string {
+	if canonicalLanguage, ok := enry.GetLanguageByAlias(language); ok {
+		language = canonicalLanguage
+	}
+	if group := enry.GetLanguageGroup(language); group != "" {
+		language = group
+	}
+	return language
 }
