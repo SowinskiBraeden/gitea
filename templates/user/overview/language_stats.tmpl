@@ -1,7 +1,7 @@
 {{if .UserLanguageStats}}
 <div class="ui segment tw-mt-4">
 	<div class="tw-flex tw-items-center tw-justify-between tw-gap-2 tw-mb-2">
-		<h3 class="ui header tw-m-0">{{ctx.Locale.Tr "repo.repo_lang"}}{{if .UserLanguageStatsYear}} <span class="tw-text-text-light">{{.UserLanguageStatsYear}}</span>{{end}}</h3>
+		<h3 class="ui header tw-m-0">{{ctx.Locale.Tr "repo.repo_lang"}}</h3>
 	</div>
 	<div class="language-stats">
 		{{range .UserLanguageStats}}

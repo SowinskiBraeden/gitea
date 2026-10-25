@@ -21,7 +21,6 @@ import (
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
-	"gitea.dev/modules/timeutil"
 	"gitea.dev/routers/web/feed"
 	"gitea.dev/routers/web/org"
 	shared_user "gitea.dev/routers/web/shared/user"
@@ -355,8 +354,7 @@ func prepareUserProfileLanguageStats(ctx *context.Context) error {
 		includePrivate = false
 	}
 
-	currentYear := timeutil.TimeStampNow().AsTime().In(setting.DefaultUILocation).Year()
-	stats, year, err := activities_model.GetUserLanguageStatsOverview(ctx, ctx.ContextUser.ID, currentYear, includePrivate)
+	stats, err := activities_model.GetUserLanguageStats(ctx, ctx.ContextUser.ID, 0, includePrivate)
 	if err != nil {
 		return err
 	}
@@ -364,7 +362,6 @@ func prepareUserProfileLanguageStats(ctx *context.Context) error {
 		stats = stats[:8]
 	}
 	ctx.Data["UserLanguageStats"] = stats
-	ctx.Data["UserLanguageStatsYear"] = year
 	return nil
 }
 

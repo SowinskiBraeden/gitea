@@ -17,9 +17,3 @@ func TestIsGenericLanguage(t *testing.T) {
 		assert.False(t, isGenericLanguage(language), language)
 	}
 }
-
-func TestDominatedByJavaScript(t *testing.T) {
-	assert.False(t, dominatedByJavaScript(nil))
-	assert.False(t, dominatedByJavaScript([]*UserLanguageStatSummary{{Language: "Go"}, {Language: "JavaScript"}}))
-	assert.True(t, dominatedByJavaScript([]*UserLanguageStatSummary{{Language: "JavaScript"}, {Language: "Go"}}))
-}
