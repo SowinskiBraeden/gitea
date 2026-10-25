@@ -355,8 +355,8 @@ func prepareUserProfileLanguageStats(ctx *context.Context) error {
 		includePrivate = false
 	}
 
-	year := timeutil.TimeStampNow().AsTime().In(setting.DefaultUILocation).Year()
-	stats, err := activities_model.GetUserLanguageStats(ctx, ctx.ContextUser.ID, year, includePrivate)
+	currentYear := timeutil.TimeStampNow().AsTime().In(setting.DefaultUILocation).Year()
+	stats, year, err := activities_model.GetUserLanguageStatsOverview(ctx, ctx.ContextUser.ID, currentYear, includePrivate)
 	if err != nil {
 		return err
 	}

@@ -105,6 +105,10 @@ func GetUserLanguageStats(ctx context.Context, userID int64, year int, includePr
 		return nil, err
 	}
 
+	stats = slices.DeleteFunc(stats, func(stat *UserLanguageStatSummary) bool {
+		return isGenericLanguage(stat.Language)
+	})
+
 	var total int64
 	for _, stat := range stats {
 		stat.ChangedLines = stat.Additions + stat.Deletions
@@ -123,6 +127,33 @@ func GetUserLanguageStats(ctx context.Context, userID int64, year int, includePr
 		return stringsCompare(a.Language, b.Language)
 	})
 	return stats, nil
+}
+
+// GetUserLanguageStatsOverview returns all-time totals, falling back to fallbackYear when
+// JavaScript dominates all-time. The returned year is 0 when the totals span every year.
+func GetUserLanguageStatsOverview(ctx context.Context, userID int64, fallbackYear int, includePrivate bool) ([]*UserLanguageStatSummary, int, error) {
+	stats, err := GetUserLanguageStats(ctx, userID, 0, includePrivate)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !dominatedByJavaScript(stats) {
+		return stats, 0, nil
+	}
+	stats, err = GetUserLanguageStats(ctx, userID, fallbackYear, includePrivate)
+	if err != nil {
+		return nil, 0, err
+	}
+	return stats, fallbackYear, nil
+}
+
+// isGenericLanguage drops markup, data and prose files so totals reflect written code only.
+func isGenericLanguage(language string) bool {
+	return enry.GetLanguageType(language) != enry.Programming
+}
+
+// dominatedByJavaScript expects stats sorted by changed lines descending.
+func dominatedByJavaScript(stats []*UserLanguageStatSummary) bool {
+	return len(stats) > 0 && stats[0].Language == "JavaScript"
 }
 
 func stringsCompare(a, b string) int {
